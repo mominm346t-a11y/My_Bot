@@ -4,21 +4,26 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHANNELS = ["Amin13247", "Dhaka83", "MIM9614"]
-app = Flask(__name__)
+CHANNELS_RAW = os.getenv("CHANNELS", "MIM9614,Amin13247,Dhaka83")
+CHANNELS = [c.strip().replace("@","") for c in CHANNELS_RAW.replace("[","").replace("]","").replace('"',"").replace("'","").split(",") if c.strip()]
 
+print(f"BOT_TOKEN OK? {bool(BOT_TOKEN)} - Channels: {CHANNELS}", flush=True)
+
+app = Flask(__name__)
 @app.route('/')
 def home():
-    return "Bot Live!"
+    return "Bot is Live!"
 
-async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def check_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.effective_user or update.effective_user.is_bot:
         return
     uid = update.effective_user.id
-    not_joined=[]
+    chat_id = update.effective_chat.id
+    print(f"Msg from {uid}", flush=True)
+    not_joined = []
     for ch in CHANNELS:
         try:
-            m=await context.bot.get_chat_member(f"@{ch}", uid)
+            m = await context.bot.get_chat_member(f"@{ch}", uid)
             if m.status not in ['member','administrator','creator']:
                 not_joined.append(ch)
         except:
@@ -27,20 +32,19 @@ async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         await update.message.delete()
-    except:
-        pass
-    btns=[
-        [InlineKeyboardButton("Join @Amin13247", url="https://t.me/Amin13247")],
-        [InlineKeyboardButton("Join @Dhaka83", url="https://t.me/Dhaka83")],
-        [InlineKeyboardButton("Join @MIM9614", url="https://t.me/MIM9614")]
-    ]
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ {update.effective_user.first_name} আগে ৩টা চ্যানেলে Join করো!", reply_markup=InlineKeyboardMarkup(btns))
+        print("DELETED", flush=True)
+    except Exception as e:
+        print(f"DELETE FAILED: {e}", flush=True)
+        return
+    btns = [[InlineKeyboardButton(f"Join @{c}", url=f"https://t.me/{c}")] for c in CHANNELS]
+    await context.bot.send_message(chat_id, f"⚠️ Join {', '.join(['@'+c for c in CHANNELS])} first!", reply_markup=InlineKeyboardMarkup(btns))
 
-def start_bot():
-    app_bot=Application.builder().token(BOT_TOKEN).build()
-    app_bot.add_handler(MessageHandler(filters.ALL, check))
-    app_bot.run_polling(drop_pending_updates=True)
+def run_bot():
+    print("Starting Bot Polling...", flush=True)
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(MessageHandler(filters.ALL, check_join))
+    application.run_polling(drop_pending_updates=True)
 
-if __name__=="__main__":
-    threading.Thread(target=start_bot, daemon=True).start()
+if __name__ == "__main__":
+    threading.Thread(target=run_bot, daemon=True).start()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
