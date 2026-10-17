@@ -1,44 +1,34 @@
 from flask import Flask
 from threading import Thread
+import os, re, asyncio
+from telegram import Update
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
+# Flask - Render কে বাঁচিয়ে রাখার জন্য
 app = Flask('')
 @app.route('/')
 def home(): return "Bot is Running!"
 def run(): app.run(host='0.0.0.0', port=10000)
 Thread(target=run).start()
 
-import asyncio
-import os
-from aiogram import Bot, Dispatcher, types
-
+# Telegram Bot
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHANNELS = os.getenv("CHANNEL_ID") # এখানে , দিয়ে দিয়ে চ্যানেল দিবে
+LINK_PATTERN = r"t\.me|telegram\.me|telegram\.dog"
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-
-# কমা দিয়ে আলাদা করা
-CHANNEL_LIST = [ch.strip() for ch in CHANNELS.split(",") if ch.strip()]
-
-@dp.message()
-async def check_join(message: types.Message):
-    try:
-        for CHANNEL_ID in CHANNEL_LIST:
-            member = await bot.get_chat_member(CHANNEL_ID, message.from_user.id)
-            if member.status in ['left', 'kicked']:
-                await message.delete()
-                # সব চ্যানেলের লিস্ট দেখাবে
-                all_channels = "\n".join(CHANNEL_LIST)
-                msg = await message.answer(f"@{message.from_user.username or message.from_user.first_name} আগে জয়েন করুন 👇\n{all_channels}\nতারপর মেসেজ দিন।")
-                await asyncio.sleep(15)
-                await msg.delete()
-                return
-    except Exception as e:
-        print(e)
-        pass
+async def delete_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message and update.message.text:
+        if re.search(LINK_PATTERN, update.message.text, re.IGNORECASE):
+            try:
+                await update.message.delete()
+                print(f"Deleted: {update.message.text}")
+            except Exception as e:
+                print(f"Delete failed: {e}")
 
 async def main():
-    await dp.start_polling(bot)
+    print("Starting Bot...")
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, delete_link))
+    await application.run_polling()
 
 if __name__ == "__main__":
     asyncio.run(main())
