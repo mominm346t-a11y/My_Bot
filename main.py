@@ -1,50 +1,74 @@
-import os, threading
-from flask import Flask
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+import logging
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHANNELS_RAW = os.getenv("CHANNELS", "MIM9614,Amin13247,Dhaka83")
-CHANNELS = [c.strip().replace("@","") for c in CHANNELS_RAW.replace("[","").replace("]","").replace('"',"").replace("'","").split(",") if c.strip()]
+# === এখানে তোমার তথ্য বসাও ===
+BOT_TOKEN 8615086366:AAGgJvdjT6F_BBnMAMBekOA2ub7HsPeTuzE
+CHANNEL_USERNAME = "@MIM9614"  # তোমার চ্যানেল
+CHANNEL_LINK = "https://t.me/MIM9614"
 
-print(f"BOT_TOKEN OK? {bool(BOT_TOKEN)} - Channels: {CHANNELS}", flush=True)
+# ওয়ার্নিং গোনার জন্য
+user_warnings = {}
 
-app = Flask(__name__)
-@app.route('/')
-def home():
-    return "Bot is Live!"
+# লগ
+logging.basicConfig(level=logging.INFO)
 
-async def check_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.effective_user or update.effective_user.is_bot:
+async def check_and_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message is None or update.effective_user is None:
         return
-    uid = update.effective_user.id
-    chat_id = update.effective_chat.id
-    print(f"Msg from {uid}", flush=True)
-    not_joined = []
-    for ch in CHANNELS:
-        try:
-            m = await context.bot.get_chat_member(f"@{ch}", uid)
-            if m.status not in ['member','administrator','creator']:
-                not_joined.append(ch)
-        except:
-            not_joined.append(ch)
-    if not not_joined:
-        return
+    
+    user = update.effective_user
+    chat = update.effective_chat
+
+    # অ্যাডমিনদের মেসেজ ডিলিট করবে না
+    try:
+        member = await context.bot.get_chat_member(chat.id, user.id)
+        if member.status in ['administrator', 'creator']:
+            return
+    except:
+        pass
+
+    # চ্যানেলে জয়েন আছে কিনা চেক
+    try:
+        ch_member = await context.bot.get_chat_member(CHANNEL_USERNAME, user.id)
+        if ch_member.status in ['member', 'administrator', 'creator']:
+            return # জয়েন আছে, কিছু করবে না
+    except:
+        # জয়েন নাই
+        pass
+
+    # জয়েন নাই -> মেসেজ ডিলিট
     try:
         await update.message.delete()
-        print("DELETED", flush=True)
-    except Exception as e:
-        print(f"DELETE FAILED: {e}", flush=True)
+    except:
+        pass
+
+    # ওয়ার্নিং বাড়াও
+    warnings = user_warnings.get(user.id, 0) + 1
+    user_warnings[user.id] = warnings
+
+    if warnings >= 10:
+        try:
+            await context.bot.ban_chat_member(chat.id, user.id)
+            await context.bot.send_message(chat.id, f"{user.first_name} কে 10 বার সতর্ক করার পর ব্যান করা হলো।")
+            user_warnings[user.id] = 0
+        except:
+            pass
         return
-    btns = [[InlineKeyboardButton(f"Join @{c}", url=f"https://t.me/{c}")] for c in CHANNELS]
-    await context.bot.send_message(chat_id, f"⚠️ Join {', '.join(['@'+c for c in CHANNELS])} first!", reply_markup=InlineKeyboardMarkup(btns))
 
-def run_bot():
-    print("Starting Bot Polling...", flush=True)
-    application = Application.builder().token(BOT_TOKEN).build()
-    application.add_handler(MessageHandler(filters.ALL, check_join))
-    application.run_polling(drop_pending_updates=True)
+    # তোমার স্ক্রিনশটের মতো মেসেজ + বাটন
+    text = f"মেসেজ করার ,🙈 نينو للجادين (النبذة)\nআগে আপনাকে আমাদের চ্যানেলে জয়েন করতে হবে। (সতর্কবার্তা: {warnings}/10)"
 
-if __name__ == "__main__":
-    threading.Thread(target=run_bot, daemon=True).start()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    keyboard = [[InlineKeyboardButton("📢 চ্যানেলে জয়েন করুন / Join Channel", url=CHANNEL_LINK)]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await context.bot.send_message(
+        chat_id=chat.id,
+        text=text,
+        reply_markup=reply_markup
+    )
+
+app = ApplicationBuilder().token(BOT_TOKEN).build()
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_and_delete))
+print("Bot is running...")
+app.run_polling()
